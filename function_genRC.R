@@ -3,11 +3,11 @@
 # Algorithm to generate estimates of reproduction numbers, unobserved cases (epsilon edges), 
 #' and second order AIC estimates for a particular timeseries, distance matrix and set of parameters
 #'
-#' @param tmat timeseries matrix
+#' @param tmat time series matrix
 #' @param dmat distance matrix
 #' @param DataType distance data type - euclidian, friction, binary
 #' @param SpatialKernel
-#' @param fixed vector of fixed parameters
+#' @param fixed vector of fixed parameters - alpha, delta, epsilon
 #' @param alpha prior mean and variance for serial interval parameter alpha, if fixed the fixed value
 #' @param delta prior mean and variance for distance function parameter delta, if fixed the fixed value
 #' @param epsilon prior mean and variance for epsilon edge, if fixed the fixed value
@@ -16,8 +16,6 @@
 #' @export
 #'
 #' @examples
-
-
 
 
 spatialnetrate <-
@@ -34,65 +32,62 @@ spatialnetrate <-
     library(reticulate)
     tfp <- reticulate::import("tensorflow_probability",convert=FALSE)
     
-    ###############################
-    #key small functions to define
-    ##############################
-    
-    
-    f1<-function(t,d,a,r) {
-      likelihood = a*t*exp(-0.5*a*t*t) * (1/d)^r
+
+    # key small functions to define --------------------------
+    f1 <- function(t,d,a,r) {
       
+      likelihood = a*t*exp(-0.5*a*t*t) * (1/d)^r
       # survival (exp(-0.5*a*t*t) * (1/d)^(r-1) )/(r-1)
       # hazard (a*(r-1)*t)/(d)
       
-      
       return(likelihood)
     }
-    f2<-function(t,d,a,r) {
-      likelihood = a*t*exp(-0.5*a*t*t) * exp(-d^2*r)
+    
+    f2 <- function(t,d,a,r) {
       
+      likelihood = a*t*exp(-0.5*a*t*t) * exp(-d^2*r)
       # survival (exp(-0.5*a*t*t) * (1/d)^(r-1) )/(r-1)
       # hazard (a*(r-1)*t)/(d)	
       
       return(likelihood)
     }
-    f3<-function(t,d,a,r) {
-      likelihood = a*t*exp(-0.5*a*t*t) * exp(-abs(d)*r)
+    
+    f3 <- function(t,d,a,r) {
       
+      likelihood = a*t*exp(-0.5*a*t*t) * exp(-abs(d)*r)
       # survival -exp(-0.5*a*t*t - r*d)
       # hazard 	
       
-      
       return(likelihood)
     }
-    match.cols<-function(val,n){
+    
+    match.cols <- function(val,n){
+      
       colfunc <- colorRampPalette(c("blue","cyan","yellow","orange","red"))
-      col<-data.frame(val=seq(min(val),max(val),length.out=n),col=colfunc(n))
-      out<-rep(NA,length(col))
+      col <- data.frame(val=seq(min(val), max(val), length.out=n), col=colfunc(n))
+      out <- rep(NA,length(col))
       for(i in 1:length(val)){
-        out[i]<-as.character(col[which.min(abs(col$val-val[i])),'col'])
+        out[i] <- as.character(col[which.min(abs(col$val-val[i])),'col'])
       }	
       return(out)
+      
     }
     
-    
-    ###################################################
-    ## Data defining section
-    ###################################################
-    
-    #set.seed(1234)
-    tf$reset_default_graph()
+    # Data defining section --------------------------
+    # set.seed(1234)
+    tf$reset_default_graph() 
     N = ncol(tmat) # number of infectors
     Q = nrow(tmat) # number of infectees
     
     tp = tf$placeholder(shape = shape(Q, N), dtype = tf$float32)
     dp = tf$placeholder(shape = shape(Q, N), dtype = tf$float32)
     
-    ## A defining section
+    # A defining section
     if (fixed == "alpha") {
       A <- alpha
-      #this may need more coding, maybe just A=alpha is okay too?
+      # this may need more coding, maybe just A=alpha is okay too?
       A <- tf$constant(alpha, shape = shape(Q, N), dtype = tf$float32)
+      
     } else{
       A <-
         tf$nn$relu(tf$Variable(
@@ -112,9 +107,9 @@ spatialnetrate <-
       
     }
     
-    ## D defining section
+    # D defining section
     if (fixed == "delta") {
-      D <-tf$nn$relu(tf$constant(delta[1], shape = shape(1L), dtype = tf$float32))
+      D <- tf$nn$relu(tf$constant(delta[1], shape = shape(1L), dtype = tf$float32))
       
       
     } else{
@@ -136,11 +131,12 @@ spatialnetrate <-
     }
     
     
-    #E defining section
+    # E defining section
     if (fixed == "epsilon") {
-      E<-tf$nn$relu(tf$Variable(tf$constant(epsilon,shape=shape(Q),dtype=tf$float32),name='epsilon_edge'))
+      E <- tf$nn$relu(tf$Variable(tf$constant(epsilon,shape=shape(Q),dtype=tf$float32),name='epsilon_edge'))
       E<-tf$minimum(E,0.2)
       #E<-epsilon
+      
     } else{
       E <-
         tf$nn$relu(tf$Variable(
@@ -156,18 +152,16 @@ spatialnetrate <-
     if(fixed == "nil"){
       print("no fixed parameters - identifiability could be an issue")
     }
-    ###################################################
-    ## Spatial kernel section
-    ###################################################
     
     
+    # Spatial kernel section --------------------------
     if (SpatialKernel == "exponential") {
       
       H <- A * tp * tf$exp(-dp * D)*D
       
       S <- tf$negative(0.5 * A * tp * tp) - tf$log(D)
       
-    }else if(SpatialKernel == "Power Law"){
+    } else if(SpatialKernel == "Power Law"){
       H <- A * tp * ((1/dp)^D)
       #H <- A * tp * (1 + dp/D)
       #   if (dp<D){
@@ -176,10 +170,8 @@ spatialnetrate <-
       #   f<- A * tp * (dp/D)
       # }
       
-      
     } else if (SpatialKernel == "linear") {
       H <- A * tp * D * dp
-      
       
     } else if (SpatialKernel == "gaussian"){
       H <- (2*tf$sqrt(D)*A*tp*tf$exp(-D*(dp*dp)))/(tf$sqrt(pi))
@@ -189,24 +181,24 @@ spatialnetrate <-
     } else {
       H <- A * tp
       S<-tf$negative(0.5 * A * tp * tp)
+      
     }
     
     
-    #######################################################
-    ##tensorflow code
-    #######################################################
+    # Tensorflow code --------------------------
     nll1 <-
-      tf$reduce_sum(log(tf$reduce_sum(H, 1L) + E)) #first loop and second loop
+      tf$reduce_sum(log(tf$reduce_sum(H, 1L) + E)) # first loop and second loop
   
     
     nll2 <-
-      tf$reduce_sum(tf$reduce_sum(S, 1L) - E) #first loop and second loop
+      tf$reduce_sum(tf$reduce_sum(S, 1L) - E) #bfirst loop and second loop
     
     if(fixed != "epsilon"){
       log_prior <-
-        tf$negative(tf$reduce_sum(Ad$log_prob(A)) +tf$reduce_sum(Ed$log_prob(E)))
+        tf$negative(tf$reduce_sum(Ad$log_prob(A)) + tf$reduce_sum(Ed$log_prob(E)))
       #+ tf$reduce_sum(Dd$log_prob(D)))
-    }else{ 
+      
+    } else{ 
       log_prior <-
         tf$negative(tf$reduce_sum(Ad$log_prob(A))) 
                     #+ tf$reduce_sum(Dd$log_prob(D)))
@@ -227,10 +219,7 @@ spatialnetrate <-
     # sess$run(init) # initialise session
     # nll_store <- 1:steps
     
-    #############################################################
-    #BFGS optimising
-    #############################################################
-
+    # BFGS optimising --------------------------
     optimizer = tf$contrib$opt$ScipyOptimizerInterface(
       log_posterior,
       method = 'L-BFGS-B',
@@ -244,7 +233,6 @@ spatialnetrate <-
     optimizer$minimize(session = sess,
                        feed_dict = dict(tp = tmat,
                                         dp = dmat))
-
 
     #sess$run(E)
     Ds<-sess$run(D)
@@ -281,8 +269,6 @@ spatialnetrate <-
     # }
     # plot(nll_store)
     
-    #############################
-    
     As <- sess$run(list(A), feed_dict = dict(tp = tmat,
                                              dp = dmat))[[1]]
     meanA<-mean(As[As != 0])
@@ -290,7 +276,6 @@ spatialnetrate <-
     Fs <- sess$run(list(F), feed_dict = dict(tp = tmat,
                                              dp = dmat))[[1]]
     Ds<-sess$run(D)
-    #
     
     if(fixed == "epsilon"){
      # eps_edge <- rep(E, nrow(Fs))
@@ -299,7 +284,6 @@ spatialnetrate <-
       eps_edge<-sess$run(E)
     }
     
-    #
     Fs <- cbind(Fs, eps_edge)
     
     Fs = sweep(Fs, 1, rowSums(Fs), FUN = '/')
@@ -344,7 +328,6 @@ spatialnetrate <-
     # plot(dd$t,Rt)
     # abline(h=mean(Rt))
     # 
-    
     
     return(list(Rt,Ds,As,eps_edge,AIC))
     
